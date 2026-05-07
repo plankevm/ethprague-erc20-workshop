@@ -12,8 +12,8 @@ contract ERC20Test is Test, PlankDeployer {
     IERC20 public token;
 
     function setUp() public {
-        BuildOptions memory options = initBuildOptions().dependency("erc20", "src");
-        token = IERC20(plankDeployFFI("src/ERC20.plk", options));
+        BuildOptions memory options = initBuildOptions().withModuleName("erc20").withModuleRoot("src");
+        token = IERC20(plankDeployFFI("src/erc20.plk", options));
     }
 
     function test_deployerHasInitialSupply() public view {

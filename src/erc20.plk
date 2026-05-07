@@ -1,0 +1,119 @@
+import std::constructor::return_runtime;
+import std::storage::map_slot_hash;
+import erc20::constants::*;
+
+const TOTAL_SUPPLY_SLOT = 0;
+const BALANCES_SLOT = 1;
+const ALLOWANCES_SLOT = 2;
+
+const INITIAL_SUPPLY = 1_000_000;
+
+const balance_slot = fn (addr: u256) u256 {
+    map_slot_hash(addr, BALANCES_SLOT)
+};
+
+const allowance_slot = fn (owner: u256, spender: u256) u256 {
+    let owner_base = map_slot_hash(owner, ALLOWANCES_SLOT);
+    map_slot_hash(spender, owner_base)
+};
+
+const require = fn (cond: bool) void {
+    if !cond {
+        @evm_revert(@malloc_uninit(0), 0);
+    }
+};
+
+const return_u256 = fn (value: u256) never {
+    let buf = @malloc_uninit(32);
+    @mstore32(buf, value);
+    @evm_return(buf, 32);
+};
+
+const return_bool = fn (value: bool) never {
+    let buf = @malloc_uninit(32);
+    @mstore32(buf, if value { 1 } else { 0 });
+    @evm_return(buf, 32);
+};
+
+const emit_transfer = fn (from: u256, to: u256, value: u256) void {
+    let buf = @malloc_uninit(32);
+    @mstore32(buf, value);
+    @evm_log3(buf, 32, TRANSFER_TOPIC, from, to);
+};
+
+const emit_approval = fn (owner: u256, spender: u256, value: u256) void {
+    let buf = @malloc_uninit(32);
+    @mstore32(buf, value);
+    @evm_log3(buf, 32, APPROVAL_TOPIC, owner, spender);
+};
+
+init {
+    let deployer = @evm_caller();
+    @evm_sstore(TOTAL_SUPPLY_SLOT, INITIAL_SUPPLY);
+    @evm_sstore(balance_slot(deployer), INITIAL_SUPPLY);
+    return_runtime();
+}
+
+run {
+    let selector = @evm_calldataload(0) >> 224;
+    if selector == TRANSFER_SELECTOR {
+        let to = @evm_calldataload(4);
+        let amount = @evm_calldataload(36);
+        let from = @evm_caller();
+
+        let from_bal = @evm_sload(balance_slot(from));
+        require(from_bal >= amount);
+        @evm_sstore(balance_slot(from), from_bal - amount);
+
+        let to_bal = @evm_sload(balance_slot(to));
+        @evm_sstore(balance_slot(to), to_bal + amount);
+
+        emit_transfer(from, to, amount);
+        return_bool(true);
+    }
+    if selector == TRANSFER_FROM_SELECTOR {
+        let from = @evm_calldataload(4);
+        let to = @evm_calldataload(36);
+        let amount = @evm_calldataload(68);
+        let caller = @evm_caller();
+
+        let allowed = @evm_sload(allowance_slot(from, caller));
+        require(allowed >= amount);
+        @evm_sstore(allowance_slot(from, caller), allowed - amount);
+
+        let from_bal = @evm_sload(balance_slot(from));
+        require(from_bal >= amount);
+        @evm_sstore(balance_slot(from), from_bal - amount);
+
+        let to_bal = @evm_sload(balance_slot(to));
+        @evm_sstore(balance_slot(to), to_bal + amount);
+
+        emit_transfer(from, to, amount);
+        return_bool(true);
+    }
+    if selector == APPROVE_SELECTOR {
+        let spender = @evm_calldataload(4);
+        let amount = @evm_calldataload(36);
+        let owner = @evm_caller();
+
+        @evm_sstore(allowance_slot(owner, spender), amount);
+        emit_approval(owner, spender, amount);
+        return_bool(true);
+    }
+    if selector == BALANCE_OF_SELECTOR {
+        let addr = @evm_calldataload(4);
+        let bal = @evm_sload(balance_slot(addr));
+        return_u256(bal);
+    }
+    if selector == TOTAL_SUPPLY_SELECTOR {
+        let supply = @evm_sload(TOTAL_SUPPLY_SLOT);
+        return_u256(supply);
+    }
+    if selector == ALLOWANCE_SELECTOR {
+        let owner = @evm_calldataload(4);
+        let spender = @evm_calldataload(36);
+        let allowed = @evm_sload(allowance_slot(owner, spender));
+        return_u256(allowed);
+    }
+    @evm_revert(@malloc_uninit(0), 0);
+}
